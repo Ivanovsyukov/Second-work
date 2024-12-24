@@ -308,22 +308,37 @@ void request(Player* one, Player* two) {
 		if (send(one->m_sock, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
 	}
 }
-int main() {
-	my_log.open("log.txt", std::ios::out | std::ios::trunc);
+int main(int argc, char* argv[]) {
+	if(argc!=2){// в аргументе должно быть записан путь до конфиг файла
+		std::cout<<"You write less argument than need. We want two argument." << std::endl;
+		return 2;
+	}
+	
+	std::ifstream konfig(argv[1], std::ios::in);//попытка открыть конфиг файл
+	if (!konfig.is_open()) {
+		std::cout <<"File \"" << argv[1] << "\" not found" << std::endl;
+		return 1;
+	}
+
+	//проверка на наличие имени лог файла
+	std::string log_name="";
+	if(!(getline(konfig, log_name, '\n'))){//проверка на чтение вместе со чтением(если можно)
+		std::cout<< "This config don't have log's name in file" << std::endl;
+		return 3;
+	}
+	//запуск лог файла
+	my_log.open(log_name, std::ios::out | std::ios::trunc);
 	my_log << time() << "log file is open\n";
 	if (!my_log.is_open()) {
-		std::cout << time() << "fatal\n";
+		std::cout << "fatal\n";
 		return 1;
 	}
-	std::ifstream konfig("konfig.txt", std::ios::in);
-	if (!konfig.is_open()) {
-		my_log << time() << "File \"konfig.txt\" not found" << std::endl;
-		my_log.close();
-		return 1;
-	}
-	my_log << time() << "File \"konfig.txt\" is open\n";
+
 	std::string sPORT;
-	getline(konfig, sPORT, '\n');
+	if(!(getline(konfig, sPORT, '\n'))){//проверка на чтение вместе со чтением(если можно)
+		std::cout<< "This config don't have Port in file" << std::endl;
+		return 3;
+	}
 	for (size_t i = 0; i < sPORT.size(); ++i) {
 		PORT *= 10;
 		PORT += sPORT[i] - '0';
@@ -356,7 +371,7 @@ int main() {
 		sizeof(address)
 	);
 
-	SERVER = server_sock;//������� � ���������� ���������� ��� �� ����� ���� � ����� ������ ��� ������� ������� ����� �����
+	SERVER = server_sock;//������� � ���������� ���������� ��� �� ����� ���� � ����� ������ ��� ������� ������� ����� �����
 	ADDRESS = address;
 	ADDRLEN = sizeof(ADDRESS);
 
