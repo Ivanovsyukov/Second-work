@@ -1,2 +1,4 @@
 log.txt
 2024
+save.dat
+save2.dat

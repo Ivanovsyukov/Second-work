@@ -1,6 +1,7 @@
 #ifndef _PLAYER_
 #define _PLAYER_
 #include<winsock2.h>
+#include<fstream>
 #include<string>
 #include<mutex>
 #include"TSBool.cpp"

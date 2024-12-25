@@ -19,12 +19,30 @@ SOCKET SERVER;
 sockaddr_in ADDRESS;
 int ADDRLEN;
 
+bool save_player;//Есть ли куда сохранять игроков
+std::ofstream for_save;
 
 TSQueue<std::string> mes;
 TSVector<Player*> players;
-size_t find(TSVector<Player*>& tVec, std::string name) {
+
+bool read_player;//Есть ли откуда взять игроков
+struct player_from_file{
+	std::string name;
+	std::string password;
+};
+TSVector<player_from_file> players_saved;
+
+size_t find_Player(TSVector<Player*>& tVec, std::string name) {
 	for (size_t i = 0; i < tVec.size();++i) {
 		if (tVec[i]->getName() == name) {
+			return i;
+		}
+	}
+	return -1;
+}
+size_t find_saved(TSVector<player_from_file>& tVec, std::string name) {
+	for (size_t i = 0; i < tVec.size();++i) {
+		if (tVec[i].name == name) {
 			return i;
 		}
 	}
@@ -90,7 +108,7 @@ void tRegistration(SOCKET member) {
 					receiver[i] = 0;
 				}
 				if (recv(member, receiver, 1024, 0) == SOCKET_ERROR) { return; }
-				if (find(players, receiver)!=-1|| !strcmp(receiver,"")) {
+				if (find_Player(players, receiver)!=-1 || (read_player && find_saved(players_saved, receiver)==-1) || !strcmp(receiver,"")) {
 					sender = "Please chose another name: ";
 					if (send(member, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
 				}
@@ -118,8 +136,12 @@ void tRegistration(SOCKET member) {
 			sender = "Welcome to TicTacToe";
 			if (send(member, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
 			std::string password = receiver;
+			if(save_player){//если есть куда сохранять
+				for_save<<name<<" "<<receiver<<"\n";
+				for_save.flush();//принудительная запись на диск
+			}
 			players.push_back(new Player(member, name, password));
-			std::thread listen(tRecv,std::ref(players[find(players,name)]));
+			std::thread listen(tRecv,std::ref(players[find_Player(players,name)]));
 			listen.detach();
 			my_log << "member: " << name << " sing up\n";
 			return;
@@ -128,12 +150,18 @@ void tRegistration(SOCKET member) {
 			my_log << time() << "member choose log in\n";
 			sender = "What is your name: ";
 			if (send(member, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
+			size_t finded_in_players=-1; //известно, что подключены
+			size_t finded_in_saved=-1; //были в файле
 			do{
 				for (size_t i = 0; i < 1024; ++i) {
 					receiver[i] = 0;
 				}
 				if (recv(member, receiver, 1024, 0) == SOCKET_ERROR) { return; }
-				if (find(players, receiver)== -1 || !strcmp(receiver,"")) {
+				finded_in_players=find_Player(players, receiver);
+				if(read_player){
+					finded_in_saved=find_saved(players_saved, receiver);
+				}
+				if ((finded_in_players== -1 && (read_player && finded_in_saved==-1)) || !strcmp(receiver,"")) {
 					sender = "This name is not log in. Chose another name: ";
 					if (send(member, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
 				}
@@ -141,8 +169,14 @@ void tRegistration(SOCKET member) {
 					break;
 				}
 			} while (true);
-			Player* strange = players[find(players, receiver)];
-			strange->m_sock = member;
+			Player* strange=nullptr;
+			if(finded_in_players!=-1){//если есть в базе активных
+				strange = players[find_Player(players, receiver)];
+				strange->m_sock = member;
+			} else if(read_player && finded_in_saved!=-1){//не был в активных, но в сохранённых
+				strange=new Player(member, players_saved[finded_in_saved].name, players_saved[finded_in_saved].password);
+				players.push_back(strange);
+			}
 			sender = "What is your password: ";
 			if (send(member, sender.c_str(), sender.size(), 0) == SOCKET_ERROR) { return; }
 			do {
@@ -345,6 +379,67 @@ int main(int argc, char* argv[]) {
 	}
 	my_log << time() << ("Server socket is " + std::to_string(PORT) + '\n');
 
+	std::string read="";
+	if(!(getline(konfig, read, '\n'))){//проверка на чтение вместе со чтением(если можно)
+		std::cout<< "This config don't have read file" << std::endl;
+		return 3;
+	}
+	if(read!="-"){
+		read_player=true;
+		std::ifstream player_base(read);
+		if(!player_base.is_open()){
+			std::cout << "This read file is not open" << std::endl;
+			return 4;
+		}
+		player_from_file reader;
+		reader.name="";
+		reader.password="";
+		bool end=false;
+		while(!player_base.eof() && !end){
+			player_base >> reader.name >> reader.password;
+			if((reader.name=="" || reader.password=="") && !(reader.name=="" && reader.password=="")){
+				end=true;
+			} else if(!(reader.name=="" && reader.password=="")){
+				players_saved.push_back(reader);
+				reader.name="";
+				reader.password="";
+			}
+		}
+		if(end){
+			std::cout << "This read file has wrong playername or password" << std::endl;
+			return 4;
+		}
+		player_base.close();
+	}else{
+		read_player=false;
+	}
+	my_log << time() << ("Read file base of clients is" + read + '\n');
+
+	std::string save="";
+	if(!(getline(konfig, save, '\n'))){//проверка на чтение вместе со чтением(если можно)
+		std::cout<< "This config don't have save file" << std::endl;
+		return 3;
+	}
+	if(save=="-"){
+		save_player=false;
+	} else {
+		save_player=true;
+		for_save.open(save);
+		if(!for_save.is_open()){
+			std::cout << "This save file is not open" << std::endl;
+			return 4;
+		}
+		
+		if(read_player){
+			std::cout<<players_saved.size();
+			for(size_t i=0; i<players_saved.size(); ++i){
+				for_save<< players_saved[i].name<<" "<<players_saved[i].password<<"\n";
+				for_save.flush();//принудительная запись на диск
+			}
+		}
+	}
+	my_log << time() << ("Save file base of clients is " + save + '\n');
+
 	//Initialize winsock
 	my_log << time() << "Initialising Winsock...\n";
 	WSADATA wsa;
@@ -394,34 +489,31 @@ int main(int argc, char* argv[]) {
 			std::string command = parsMes(message, pointer);
 			my_log << ' ' << command<<command.size()<< '\n';
 			if (strcmp(command.c_str(), "online")==0) {
-				whoIsOnline(players[find(players, name)]);
+				whoIsOnline(players[find_Player(players, name)]);
 			}
 			else if (strcmp(command.c_str(), "play")==0) {
 				std::string enemy = parsMes(message,pointer);
 				if (name == enemy) {
-					send(players[find(players, name)]->m_sock, "You can not play with yourself", 31, 0);
+					send(players[find_Player(players, name)]->m_sock, "You can not play with yourself", 31, 0);
 					continue;
 				}
-				if (find(players, enemy) == -1) {
-					send(players[find(players, name)]->m_sock, "There are not players with this name", 37, 0);
+				if (find_Player(players, enemy) == -1) {
+					send(players[find_Player(players, name)]->m_sock, "There are not players with this name", 37, 0);
 					continue;
 				}
-				if (players[find(players, enemy)]->getStatus()) {
-					std::thread req(request, std::ref(players[find(players,name)]),std::ref(players[find(players,enemy)]));
+				if (players[find_Player(players, enemy)]->getStatus()) {
+					std::thread req(request, std::ref(players[find_Player(players,name)]),std::ref(players[find_Player(players,enemy)]));
 					req.detach();
 				}
 				else {
-					send(players[find(players, name)]->m_sock, "This player is offline", 23, 0);
+					send(players[find_Player(players, name)]->m_sock, "This player is offline", 23, 0);
 				}
 			}
 			else {
 				my_log << time() << "False form command\n";
-				Player* play = players[find(players, name)];
+				Player* play = players[find_Player(players, name)];
 				send(play->m_sock, "It is not a command", 20, 0);
 			}
 		}
 	}
-
-
-
 }
